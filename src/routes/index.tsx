@@ -1,23 +1,39 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  AudioLines,
+  FileText,
+  Loader2,
+  Plus,
+  Trash2,
+  Upload,
+  X,
+  Download,
+  Sparkles,
+  CheckCircle2,
+  AlertCircle,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { downloadAnalysisPdf } from "@/lib/pdf";
 
 const ENDPOINT = "https://basement-existence-reach-antiques.trycloudflare.com/analyze";
+const ALLOWED = ["mp3", "wav", "m4a", "ogg", "aac", "flac", "webm"];
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Анализ диалогов — AI-разбор звонков" },
+      { title: "AI-анализ звонка — разбор разговоров по критериям" },
       {
         name: "description",
         content:
-          "Загрузите аудиофайл или вставьте текст диалога, укажите критерии оценки и получите AI-анализ разговора.",
+          "Загрузите аудиозапись звонка или вставьте расшифровку, задайте критерии и получите структурированный AI-анализ с выгрузкой в PDF.",
       },
-      { property: "og:title", content: "Анализ диалогов" },
+      { property: "og:title", content: "AI-анализ звонка" },
       {
         property: "og:description",
-        content: "Аудио или текст диалога, свои критерии оценки и готовый разбор разговора.",
+        content:
+          "Аудио или расшифровка, свои критерии оценки и готовый разбор звонка в один клик.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -26,157 +42,403 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
+type Status = "idle" | "received" | "processing" | "done";
+
+function Hint({ tone = "warn", children }: { tone?: "warn" | "error"; children: React.ReactNode }) {
+  return (
+    <p
+      role="status"
+      className={`mt-2 flex items-start gap-1.5 text-sm ${
+        tone === "error" ? "text-destructive" : "text-warning"
+      }`}
+    >
+      <AlertCircle className="mt-0.5 size-4 shrink-0" />
+      <span>{children}</span>
+    </p>
+  );
+}
+
 function Index() {
-  const [mode, setMode] = useState<"audio" | "text">("audio");
   const [file, setFile] = useState<File | null>(null);
   const [text, setText] = useState("");
-  const [criteria, setCriteria] = useState("");
-  const [result, setResult] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [dropHint, setDropHint] = useState<string | null>(null);
+  const [runHint, setRunHint] = useState<string | null>(null);
+  const [runHintTone, setRunHintTone] = useState<"warn" | "error">("warn");
+  const [criteriaHint, setCriteriaHint] = useState<string | null>(null);
+  const [pdfHint, setPdfHint] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [criteria, setCriteria] = useState<string[]>([
+    "Приветствие",
+    "Выявление проблемы",
+    "Обработка возражений",
+  ]);
+  const [newCriterion, setNewCriterion] = useState("");
+  const [status, setStatus] = useState<Status>("idle");
+  const [analysis, setAnalysis] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const resetForm = () => {
+  const hasInput = Boolean(file) || text.trim().length > 0;
+  const processing = status === "processing";
+
+  const clearHints = () => {
+    setRunHint(null);
+    setCriteriaHint(null);
+    setPdfHint(null);
+  };
+
+  const busyGuard = useCallback(
+    (setter: (v: string | null) => void) => {
+      if (processing) {
+        clearHints();
+        setter("Идёт обработка, подождите");
+        return true;
+      }
+      return false;
+    },
+    [processing],
+  );
+
+  const acceptFile = (f: File) => {
+    const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
+    if (!ALLOWED.includes(ext)) {
+      setDropHint("Неверный формат, загрузите mp3/wav/m4a/ogg/aac/flac/webm");
+      return;
+    }
+    setDropHint(null);
+    setFile(f);
+    setText("");
+    setStatus("received");
+    clearHints();
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    if (busyGuard(setRunHint)) return;
+    const f = e.dataTransfer.files?.[0];
+    if (f) acceptFile(f);
+  };
+
+  const onPaste = (e: React.ClipboardEvent) => {
+    if (busyGuard(setRunHint)) return;
+    const f = e.clipboardData.files?.[0];
+    if (f) {
+      e.preventDefault();
+      acceptFile(f);
+      return;
+    }
+    const pasted = e.clipboardData.getData("text");
+    if (pasted.trim()) {
+      e.preventDefault();
+      setFile(null);
+      setDropHint(null);
+      setText(pasted);
+      setStatus("received");
+      clearHints();
+    }
+  };
+
+  const clearAll = () => {
+    if (busyGuard(setRunHint)) return;
     setFile(null);
     setText("");
-    setCriteria("");
-    setResult("");
+    setAnalysis(null);
+    setDropHint(null);
+    setStatus("idle");
+    clearHints();
     if (inputRef.current) inputRef.current.value = "";
   };
 
-  const analyze = async () => {
-    if (loading) return;
-    if (mode === "audio" && !file) {
-      setResult("⚠️ Выберите аудиофайл");
+  const addCriterion = () => {
+    if (busyGuard(setCriteriaHint)) return;
+    const value = newCriterion.trim();
+    if (!value) {
+      setCriteriaHint("Введите название критерия");
       return;
     }
-    if (mode === "text" && !text.trim()) {
-      setResult("⚠️ Введите текст диалога");
+    setCriteria((prev) => [...prev, value]);
+    setNewCriterion("");
+    setCriteriaHint(null);
+  };
+
+  const removeCriterion = (index: number) => {
+    if (busyGuard(setCriteriaHint)) return;
+    setCriteria((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const runAnalysis = async () => {
+    if (busyGuard(setRunHint)) return;
+    clearHints();
+    if (!hasInput) {
+      setRunHintTone("warn");
+      setRunHint("Добавьте файл или вставьте текст");
       return;
     }
 
-    setLoading(true);
-    setResult("⏳ Обрабатываю…");
+    setStatus("processing");
+    setAnalysis(null);
 
     const form = new FormData();
-    if (mode === "audio" && file) form.append("file", file);
-    else form.append("text", text);
-
-    const list = criteria
-      .split(/[;\n]/)
-      .map((c) => c.trim())
-      .filter(Boolean);
-    if (list.length) form.append("criteria", JSON.stringify(list));
+    if (file) {
+      // Бэкенд ожидает поле "audio" для аудиофайла
+      form.append("audio", file, file.name);
+    } else {
+      form.append("text", text);
+    }
+    form.append("criteria", JSON.stringify(criteria));
 
     try {
       const res = await fetch(ENDPOINT, { method: "POST", body: form });
       const data = await res.json().catch(() => null);
-      if (res.ok && (data?.status === "ok" || data?.analysis)) {
-        setResult(String(data.analysis ?? ""));
-      } else {
-        setResult(`❌ ${data?.message || "Не удалось выполнить анализ. Попробуйте ещё раз."}`);
+
+      if (res.ok && data?.status === "ok") {
+        setAnalysis(String(data.analysis ?? ""));
+        setStatus("done");
+        return;
       }
+
+      setStatus("received");
+      setRunHintTone("error");
+      setRunHint(data?.message || "Не удалось выполнить анализ. Попробуйте ещё раз.");
     } catch {
-      setResult("❌ Не удалось связаться с сервером анализа. Проверьте соединение.");
-    } finally {
-      setLoading(false);
+      setStatus("received");
+      setRunHintTone("error");
+      setRunHint("Не удалось связаться с сервером анализа. Проверьте соединение.");
     }
   };
 
+  const downloadPdf = async () => {
+    if (busyGuard(setPdfHint)) return;
+    if (!analysis) {
+      setPdfHint("Сначала получите результат анализа");
+      return;
+    }
+    setPdfHint(null);
+    await downloadAnalysisPdf(analysis, criteria, file ? file.name : "Вставленный текст");
+  };
+
+  const statusBadge = useMemo(() => {
+    switch (status) {
+      case "received":
+        return { label: "Получили", icon: CheckCircle2, cls: "bg-accent text-accent-foreground" };
+      case "processing":
+        return { label: "Обрабатываю…", icon: Loader2, cls: "bg-warning/15 text-warning" };
+      case "done":
+        return { label: "Готово", icon: CheckCircle2, cls: "bg-success/15 text-success" };
+      default:
+        return { label: "Ожидание данных", icon: Sparkles, cls: "bg-muted text-muted-foreground" };
+    }
+  }, [status]);
+
+  const StatusIcon = statusBadge.icon;
+
   return (
-    <main className="min-h-screen bg-muted/40 py-10">
-      <div className="mx-auto w-full max-w-3xl px-5">
-        <div className="rounded-xl border border-border bg-card p-8 shadow-soft">
-          <h1 className="font-display text-2xl font-bold">🎙️ Анализ диалогов</h1>
-
-          <div className="mt-5 flex gap-6 rounded-lg bg-muted p-4">
-            <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
-              <input
-                type="radio"
-                name="mode"
-                checked={mode === "audio"}
-                onChange={() => setMode("audio")}
-              />
-              🎵 Аудиофайл
-            </label>
-            <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
-              <input
-                type="radio"
-                name="mode"
-                checked={mode === "text"}
-                onChange={() => setMode("text")}
-              />
-              📝 Текст
-            </label>
+    <main className="min-h-screen bg-background">
+      <div className="mx-auto w-full max-w-6xl px-5 py-10 md:py-14">
+        <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="mb-2 inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1 text-xs font-semibold uppercase tracking-wider text-secondary-foreground">
+              <Sparkles className="size-3.5" /> AI Quality Control
+            </p>
+            <h1 className="font-display text-3xl font-bold tracking-tight md:text-4xl">
+              AI-анализ звонка
+            </h1>
+            <p className="mt-2 max-w-xl text-muted-foreground">
+              Загрузите аудиозапись или вставьте расшифровку, задайте критерии — и получите
+              структурированный разбор разговора.
+            </p>
           </div>
+          <div
+            className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold ${statusBadge.cls}`}
+          >
+            <StatusIcon className={`size-4 ${processing ? "animate-spin" : ""}`} />
+            {statusBadge.label}
+          </div>
+        </header>
 
-          {mode === "audio" ? (
-            <div className="mt-5 rounded-lg border border-border bg-muted/40 p-4">
+        <div className="grid gap-6 lg:grid-cols-[1.35fr_1fr]">
+          {/* Left */}
+          <section className="panel p-6">
+            <h2 className="font-display text-lg font-semibold">Источник</h2>
+
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => (processing ? busyGuard(setRunHint) : inputRef.current?.click())}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  inputRef.current?.click();
+                }
+              }}
+              onPaste={onPaste}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={onDrop}
+              className={`mt-4 flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed p-6 text-center transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                dragging
+                  ? "border-primary bg-primary/5 shadow-lift"
+                  : "border-border bg-muted/40 hover:border-primary/60 hover:bg-primary/5"
+              }`}
+            >
+              <div className="gradient-hero mb-4 flex size-14 items-center justify-center rounded-2xl text-primary-foreground">
+                <Upload className="size-6" />
+              </div>
+              <p className="max-w-xs text-base font-semibold">
+                Переместите сюда аудиофайл и получите анализ звонка
+              </p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Форматы: mp3, wav, m4a, ogg, aac, flac, webm
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Или нажмите, чтобы выбрать файл — либо вставьте текст расшифровки (Ctrl+V)
+              </p>
+
+              {(file || text.trim()) && (
+                <div className="mt-5 flex max-w-full items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm shadow-soft">
+                  {file ? (
+                    <AudioLines className="size-4 shrink-0 text-primary" aria-label="Аудиофайл" />
+                  ) : (
+                    <FileText className="size-4 shrink-0 text-success" aria-label="Текст" />
+                  )}
+                  <span className="truncate font-medium">
+                    {file ? file.name : "Вставлен текст"}
+                  </span>
+                </div>
+              )}
+
               <input
                 ref={inputRef}
                 type="file"
                 accept=".mp3,.wav,.m4a,.ogg,.aac,.flac,.webm,audio/*"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                className="w-full cursor-pointer rounded-lg border-2 border-dashed border-border p-3 text-sm"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) acceptFile(f);
+                }}
               />
-              {file && (
-                <div className="mt-3 flex items-center gap-3 rounded-lg border border-success/40 bg-success/10 px-4 py-3">
-                  <span className="text-2xl">🎵</span>
-                  <span className="flex-1 truncate font-semibold">{file.name}</span>
-                  <span className="rounded-full bg-success px-3 py-1 text-xs font-medium text-success-foreground">
-                    Аудио
-                  </span>
-                </div>
-              )}
-              <small className="mt-2 block text-muted-foreground">
-                Поддерживаются: MP3, WAV, M4A, OGG, AAC, FLAC, WEBM
-              </small>
             </div>
-          ) : (
-            <div className="mt-5 rounded-lg border border-border bg-muted/40 p-4">
-              <textarea
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder="Введите текст диалога для анализа..."
-                className="min-h-[150px] w-full resize-y rounded-lg border border-border bg-background p-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
-              <div className="mt-3 flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/10 px-4 py-3">
-                <span className="text-2xl">📝</span>
-                <span className="flex-1 font-semibold">Вставленный текст</span>
-                <span className="rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground">
-                  Текст
-                </span>
+
+            {dropHint && <Hint tone="error">{dropHint}</Hint>}
+
+            {text.trim() && (
+              <div className="mt-4 max-h-32 overflow-auto rounded-xl border border-border bg-muted/50 p-3 text-sm text-muted-foreground whitespace-pre-wrap">
+                {text}
               </div>
+            )}
+
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <Button onClick={runAnalysis} size="lg" className="gap-2">
+                {processing ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" /> Обрабатываю…
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="size-4" /> Запустить анализ
+                  </>
+                )}
+              </Button>
+              <Button variant="outline" size="lg" onClick={clearAll} className="gap-2">
+                <X className="size-4" /> Очистить
+              </Button>
             </div>
-          )}
+            {runHint && <Hint tone={runHintTone}>{runHint}</Hint>}
+          </section>
+
+          {/* Right */}
+          <section className="panel flex flex-col p-6">
+            <h2 className="font-display text-lg font-semibold">Критерии</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              По этим пунктам будет оцениваться разговор.
+            </p>
+
+            <ul className="mt-4 flex flex-1 flex-col gap-2">
+              {criteria.length === 0 && (
+                <li className="rounded-xl border border-dashed border-border p-4 text-center text-sm text-muted-foreground">
+                  Список пуст — добавьте критерий
+                </li>
+              )}
+              {criteria.map((c, i) => (
+                <li
+                  key={`${c}-${i}`}
+                  className="flex items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 py-2.5 text-sm"
+                >
+                  <span className="truncate">{c}</span>
+                  <button
+                    type="button"
+                    aria-label={`Удалить критерий ${c}`}
+                    onClick={() => removeCriterion(i)}
+                    className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+
+            <div className="mt-5">
+              <label className="text-sm font-medium" htmlFor="new-criterion">
+                Новый критерий
+              </label>
+              <div className="mt-2 flex gap-2">
+                <Input
+                  id="new-criterion"
+                  value={newCriterion}
+                  placeholder="Например: Работа с ценой"
+                  onChange={(e) => setNewCriterion(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addCriterion();
+                    }
+                  }}
+                />
+                <Button onClick={addCriterion} className="gap-1.5">
+                  <Plus className="size-4" /> Добавить
+                </Button>
+              </div>
+              {criteriaHint && <Hint>{criteriaHint}</Hint>}
+            </div>
+          </section>
+        </div>
+
+        {/* Result */}
+        <section className="panel mt-6 p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="font-display text-lg font-semibold">Результат анализа</h2>
+            {status === "done" && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-success/15 px-3 py-1 text-xs font-semibold text-success">
+                <CheckCircle2 className="size-3.5" /> Готово
+              </span>
+            )}
+          </div>
+
+          <div className="mt-4 min-h-40 rounded-2xl border border-dashed border-border bg-muted/40 p-6">
+            {processing ? (
+              <div className="flex h-full min-h-28 flex-col items-center justify-center gap-3 text-muted-foreground">
+                <Loader2 className="size-7 animate-spin text-primary" />
+                <p className="font-medium">Обрабатываю…</p>
+              </div>
+            ) : analysis ? (
+              <article className="text-sm leading-relaxed whitespace-pre-wrap">{analysis}</article>
+            ) : (
+              <p className="flex h-full min-h-28 items-center justify-center text-center text-muted-foreground">
+                Загрузите файл или вставьте текст и запустите анализ
+              </p>
+            )}
+          </div>
 
           <div className="mt-5">
-            <label htmlFor="criteria" className="mb-2 block text-sm font-semibold">
-              📋 Критерии оценки (опционально):
-            </label>
-            <Input
-              id="criteria"
-              value={criteria}
-              onChange={(e) => setCriteria(e.target.value)}
-              placeholder="Например: активное слушание; выявление потребностей; работа с возражениями"
-            />
-            <small className="mt-1 block text-muted-foreground">
-              Разделяйте критерии точкой с запятой (;) или новой строкой
-            </small>
-          </div>
-
-          <div className="mt-6 flex flex-wrap gap-3">
-            <Button size="lg" onClick={analyze} disabled={loading}>
-              🔍 {loading ? "Анализирую…" : "Анализировать"}
+            <Button variant="outline" size="lg" onClick={downloadPdf} className="gap-2">
+              <Download className="size-4" /> Скачать PDF
             </Button>
-            <Button size="lg" variant="destructive" onClick={resetForm} disabled={loading}>
-              🔄 Очистить
-            </Button>
+            {pdfHint && <Hint>{pdfHint}</Hint>}
           </div>
-
-          <div className="mt-6 min-h-14 rounded-lg border-l-4 border-primary bg-muted/50 p-5 text-sm leading-relaxed whitespace-pre-wrap">
-            {result}
-          </div>
-        </div>
+        </section>
       </div>
     </main>
   );
