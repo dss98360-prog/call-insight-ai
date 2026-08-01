@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { downloadAnalysisPdf } from "@/lib/pdf";
 
-const ENDPOINT = "https://basement-existence-reach-antiques.trycloudflare.com/analyze";
+const ENDPOINT = "https://subsequent-tons-bestsellers-food.trycloudflare.com/analyze";
 const ALLOWED = ["mp3", "wav", "m4a", "ogg", "aac", "flac", "webm"];
 
 export const Route = createFileRoute("/")({
