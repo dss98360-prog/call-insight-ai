@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { downloadAnalysisPdf } from "@/lib/pdf";
 
-const ENDPOINT = "https://module-stainless-forever-either.trycloudflare.com/analyze";
+const ENDPOINT = "https://francisco-shopzilla-chain-trivia.trycloudflare.com/analyze";
 const ALLOWED = ["mp3", "wav", "m4a", "ogg", "aac", "flac", "webm"];
 
 export const Route = createFileRoute("/")({
@@ -199,8 +199,8 @@ function Index() {
 
     const form = new FormData();
     if (file) {
-      // Бэкенд ожидает поле "audio" для аудиофайла
-      form.append("audio", file, file.name);
+      // Бэкенд ожидает поле "file" для аудиофайла
+      form.append("file", file, file.name);
     } else {
       form.append("text", text);
     }
