@@ -199,8 +199,8 @@ function Index() {
 
     const form = new FormData();
     if (file) {
-      // Бэкенд ожидает поле "audio" для аудиофайла
-      form.append("audio", file, file.name);
+      // Бэкенд ожидает поле "file" для аудиофайла
+      form.append("file", file, file.name);
     } else {
       form.append("text", text);
     }
