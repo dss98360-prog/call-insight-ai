@@ -82,6 +82,9 @@ function Index() {
   const [newCriterion, setNewCriterion] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [analysis, setAnalysis] = useState<string | null>(null);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
+  const textCounter = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const hasInput = Boolean(file) || text.trim().length > 0;
