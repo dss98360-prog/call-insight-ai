@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { downloadAnalysisPdf } from "@/lib/pdf";
 
-const ENDPOINT = "https://subsequent-tons-bestsellers-food.trycloudflare.com/analyze";
+const ENDPOINT = "https://module-stainless-forever-either.trycloudflare.com/analyze";
 const ALLOWED = ["mp3", "wav", "m4a", "ogg", "aac", "flac", "webm"];
 
 export const Route = createFileRoute("/")({
@@ -43,6 +43,13 @@ export const Route = createFileRoute("/")({
 });
 
 type Status = "idle" | "received" | "processing" | "done";
+
+type HistoryItem = {
+  id: string;
+  title: string;
+  createdAt: number;
+  analysis: string;
+};
 
 function Hint({ tone = "warn", children }: { tone?: "warn" | "error"; children: React.ReactNode }) {
   return (
