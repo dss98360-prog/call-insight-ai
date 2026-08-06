@@ -468,7 +468,49 @@ function Index() {
             {pdfHint && <Hint>{pdfHint}</Hint>}
           </div>
         </section>
+
+        {/* History */}
+        <section className="panel mt-6 p-6">
+          <h2 className="font-display text-lg font-semibold">История анализов</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Последние 3 результата — нажмите на карточку, чтобы открыть её заново.
+          </p>
+
+          {history.length === 0 ? (
+            <p className="mt-4 rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+              Пока нет сохранённых результатов
+            </p>
+          ) : (
+            <ul className="mt-4 grid gap-3 md:grid-cols-3">
+              {history.map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => openHistoryItem(item)}
+                    className={`flex h-full w-full flex-col items-start gap-1.5 rounded-2xl border p-4 text-left transition-all hover:shadow-lift ${
+                      activeHistoryId === item.id
+                        ? "border-primary bg-primary/5"
+                        : "border-border bg-card hover:border-primary/60"
+                    }`}
+                  >
+                    <span className="flex w-full items-center gap-2">
+                      <FileText className="size-4 shrink-0 text-primary" />
+                      <span className="truncate text-sm font-semibold">{item.title}</span>
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(item.createdAt).toLocaleString("ru-RU")}
+                    </span>
+                    <span className="line-clamp-3 text-xs text-muted-foreground">
+                      {item.analysis}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </div>
+
     </main>
   );
 }
