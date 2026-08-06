@@ -202,8 +202,18 @@ function Index() {
       const data = await res.json().catch(() => null);
 
       if (res.ok && data?.status === "ok") {
-        setAnalysis(String(data.analysis ?? ""));
+        const result = String(data.analysis ?? "");
+        setAnalysis(result);
         setStatus("done");
+        const title = file ? file.name : `Текстовый анализ #${++textCounter.current}`;
+        const item: HistoryItem = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          title,
+          createdAt: Date.now(),
+          analysis: result,
+        };
+        setHistory((prev) => [item, ...prev].slice(0, 3));
+        setActiveHistoryId(item.id);
         return;
       }
 
