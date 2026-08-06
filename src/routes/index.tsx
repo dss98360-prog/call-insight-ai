@@ -153,10 +153,19 @@ function Index() {
     setFile(null);
     setText("");
     setAnalysis(null);
+    setActiveHistoryId(null);
     setDropHint(null);
     setStatus("idle");
     clearHints();
     if (inputRef.current) inputRef.current.value = "";
+  };
+
+  const openHistoryItem = (item: HistoryItem) => {
+    if (busyGuard(setRunHint)) return;
+    setAnalysis(item.analysis);
+    setActiveHistoryId(item.id);
+    setStatus("done");
+    clearHints();
   };
 
   const addCriterion = () => {
