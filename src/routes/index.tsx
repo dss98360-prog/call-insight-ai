@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { downloadAnalysisPdf } from "@/lib/pdf";
 
-const ENDPOINT = "https://subsequent-tons-bestsellers-food.trycloudflare.com/analyze";
+const ENDPOINT = "https://module-stainless-forever-either.trycloudflare.com/analyze";
 const ALLOWED = ["mp3", "wav", "m4a", "ogg", "aac", "flac", "webm"];
 
 export const Route = createFileRoute("/")({
@@ -43,6 +43,13 @@ export const Route = createFileRoute("/")({
 });
 
 type Status = "idle" | "received" | "processing" | "done";
+
+type HistoryItem = {
+  id: string;
+  title: string;
+  createdAt: number;
+  analysis: string;
+};
 
 function Hint({ tone = "warn", children }: { tone?: "warn" | "error"; children: React.ReactNode }) {
   return (
@@ -75,6 +82,9 @@ function Index() {
   const [newCriterion, setNewCriterion] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [analysis, setAnalysis] = useState<string | null>(null);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
+  const textCounter = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const hasInput = Boolean(file) || text.trim().length > 0;
@@ -143,10 +153,19 @@ function Index() {
     setFile(null);
     setText("");
     setAnalysis(null);
+    setActiveHistoryId(null);
     setDropHint(null);
     setStatus("idle");
     clearHints();
     if (inputRef.current) inputRef.current.value = "";
+  };
+
+  const openHistoryItem = (item: HistoryItem) => {
+    if (busyGuard(setRunHint)) return;
+    setAnalysis(item.analysis);
+    setActiveHistoryId(item.id);
+    setStatus("done");
+    clearHints();
   };
 
   const addCriterion = () => {
@@ -192,8 +211,18 @@ function Index() {
       const data = await res.json().catch(() => null);
 
       if (res.ok && data?.status === "ok") {
-        setAnalysis(String(data.analysis ?? ""));
+        const result = String(data.analysis ?? "");
+        setAnalysis(result);
         setStatus("done");
+        const title = file ? file.name : `Текстовый анализ #${++textCounter.current}`;
+        const item: HistoryItem = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          title,
+          createdAt: Date.now(),
+          analysis: result,
+        };
+        setHistory((prev) => [item, ...prev].slice(0, 3));
+        setActiveHistoryId(item.id);
         return;
       }
 
@@ -439,7 +468,49 @@ function Index() {
             {pdfHint && <Hint>{pdfHint}</Hint>}
           </div>
         </section>
+
+        {/* History */}
+        <section className="panel mt-6 p-6">
+          <h2 className="font-display text-lg font-semibold">История анализов</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Последние 3 результата — нажмите на карточку, чтобы открыть её заново.
+          </p>
+
+          {history.length === 0 ? (
+            <p className="mt-4 rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+              Пока нет сохранённых результатов
+            </p>
+          ) : (
+            <ul className="mt-4 grid gap-3 md:grid-cols-3">
+              {history.map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => openHistoryItem(item)}
+                    className={`flex h-full w-full flex-col items-start gap-1.5 rounded-2xl border p-4 text-left transition-all hover:shadow-lift ${
+                      activeHistoryId === item.id
+                        ? "border-primary bg-primary/5"
+                        : "border-border bg-card hover:border-primary/60"
+                    }`}
+                  >
+                    <span className="flex w-full items-center gap-2">
+                      <FileText className="size-4 shrink-0 text-primary" />
+                      <span className="truncate text-sm font-semibold">{item.title}</span>
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(item.createdAt).toLocaleString("ru-RU")}
+                    </span>
+                    <span className="line-clamp-3 text-xs text-muted-foreground">
+                      {item.analysis}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </div>
+
     </main>
   );
 }
