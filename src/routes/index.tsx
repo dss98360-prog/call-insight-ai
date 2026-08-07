@@ -228,7 +228,9 @@ function Index() {
 
       setStatus("received");
       setRunHintTone("error");
-      setRunHint(data?.message || "Не удалось выполнить анализ. Попробуйте ещё раз.");
+      setRunHint(
+        data?.error || data?.message || `Не удалось выполнить анализ (HTTP ${res.status}).`,
+      );
     } catch {
       setStatus("received");
       setRunHintTone("error");
