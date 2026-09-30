@@ -85,6 +85,11 @@ function Index() {
   const [newCriterion, setNewCriterion] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [analysis, setAnalysis] = useState<string | null>(null);
+  const [progressInfo, setProgressInfo] = useState<{
+    progress?: number;
+    stage?: string;
+    message?: string;
+  } | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
   const textCounter = useRef(0);
