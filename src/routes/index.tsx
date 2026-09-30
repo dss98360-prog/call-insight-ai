@@ -17,7 +17,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { downloadAnalysisPdf } from "@/lib/pdf";
 
-const ENDPOINT = "https://spell-mapping-estimate-outsourcing.trycloudflare.com/analyze";
+const BASE_URL = "https://belong-ala-mrs-calculation.trycloudflare.com";
+const ENDPOINT = `${BASE_URL}/analyze`;
+const POLL_INTERVAL_MS = 2000;
+const POLL_TIMEOUT_MS = 10 * 60 * 1000;
 const ALLOWED = ["mp3", "wav", "m4a", "ogg", "aac", "flac", "webm"];
 
 export const Route = createFileRoute("/")({
