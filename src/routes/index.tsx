@@ -516,7 +516,23 @@ function Index() {
             {processing ? (
               <div className="flex h-full min-h-28 flex-col items-center justify-center gap-3 text-muted-foreground">
                 <Loader2 className="size-7 animate-spin text-primary" />
-                <p className="font-medium">Обрабатываю…</p>
+                <p className="font-medium">
+                  {progressInfo?.stage || "Обрабатываю…"}
+                </p>
+                {progressInfo?.message && (
+                  <p className="text-sm">{progressInfo.message}</p>
+                )}
+                {typeof progressInfo?.progress === "number" && (
+                  <div className="w-full max-w-xs">
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-primary transition-all"
+                        style={{ width: `${Math.min(100, Math.max(0, progressInfo.progress))}%` }}
+                      />
+                    </div>
+                    <p className="mt-1 text-center text-xs">{progressInfo.progress}%</p>
+                  </div>
+                )}
               </div>
             ) : analysis ? (
               <article className="text-sm leading-relaxed whitespace-pre-wrap">{analysis}</article>
