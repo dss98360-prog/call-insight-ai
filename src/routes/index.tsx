@@ -17,7 +17,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { downloadAnalysisPdf } from "@/lib/pdf";
 
-const ENDPOINT = "https://spell-mapping-estimate-outsourcing.trycloudflare.com/analyze";
+const BASE_URL = "https://belong-ala-mrs-calculation.trycloudflare.com";
+const ENDPOINT = `${BASE_URL}/analyze`;
+const POLL_INTERVAL_MS = 2000;
+const POLL_TIMEOUT_MS = 10 * 60 * 1000;
 const ALLOWED = ["mp3", "wav", "m4a", "ogg", "aac", "flac", "webm"];
 
 export const Route = createFileRoute("/")({
@@ -82,6 +85,11 @@ function Index() {
   const [newCriterion, setNewCriterion] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [analysis, setAnalysis] = useState<string | null>(null);
+  const [progressInfo, setProgressInfo] = useState<{
+    progress?: number;
+    stage?: string;
+    message?: string;
+  } | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
   const textCounter = useRef(0);
@@ -196,6 +204,7 @@ function Index() {
 
     setStatus("processing");
     setAnalysis(null);
+    setProgressInfo(null);
 
     const form = new FormData();
     if (file) {
@@ -206,35 +215,90 @@ function Index() {
     }
     form.append("criteria", JSON.stringify(criteria));
 
+    const fail = (message: string) => {
+      setStatus("received");
+      setProgressInfo(null);
+      setRunHintTone("error");
+      setRunHint(message);
+    };
+
     try {
+      // 1. Запускаем задачу анализа
       const res = await fetch(ENDPOINT, { method: "POST", body: form });
       const data = await res.json().catch(() => null);
 
-      if (res.ok && data?.status === "ok") {
-        const result = String(data.analysis ?? "");
-        setAnalysis(result);
-        setStatus("done");
-        const title = file ? file.name : `Текстовый анализ #${++textCounter.current}`;
-        const item: HistoryItem = {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          title,
-          createdAt: Date.now(),
-          analysis: result,
-        };
-        setHistory((prev) => [item, ...prev].slice(0, 3));
-        setActiveHistoryId(item.id);
+      if (res.status !== 202 || data?.status !== "accepted" || !data?.job_id) {
+        fail(
+          data?.error || data?.message || `Не удалось запустить анализ (HTTP ${res.status}).`,
+        );
         return;
       }
 
-      setStatus("received");
-      setRunHintTone("error");
-      setRunHint(
-        data?.error || data?.message || `Не удалось выполнить анализ (HTTP ${res.status}).`,
-      );
+      const jobId: string = data.job_id;
+
+      // 2. Опрашиваем статус задачи
+      const startedAt = Date.now();
+      for (;;) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+
+        if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
+          fail("Превышено время ожидания результата. Попробуйте ещё раз.");
+          return;
+        }
+
+        const statusRes = await fetch(`${BASE_URL}/status/${jobId}`);
+        const statusData = await statusRes.json().catch(() => null);
+
+        if (!statusRes.ok || !statusData) {
+          fail(`Не удалось получить статус задачи (HTTP ${statusRes.status}).`);
+          return;
+        }
+
+        if (statusData.status === "queued" || statusData.status === "processing") {
+          setProgressInfo({
+            progress:
+              typeof statusData.progress === "number" ? statusData.progress : undefined,
+            stage: statusData.stage,
+            message: statusData.message,
+          });
+          continue;
+        }
+
+        if (statusData.status === "error") {
+          fail(statusData.error || statusData.message || "Анализ завершился с ошибкой.");
+          return;
+        }
+
+        if (statusData.status === "completed") {
+          // 3. Забираем результат
+          const resultRes = await fetch(`${BASE_URL}/result/${jobId}`);
+          const resultData = await resultRes.json().catch(() => null);
+
+          if (!resultRes.ok || !resultData) {
+            fail(`Не удалось получить результат (HTTP ${resultRes.status}).`);
+            return;
+          }
+
+          const result = String(resultData.analysis ?? "");
+          setAnalysis(result);
+          setStatus("done");
+          setProgressInfo(null);
+          const title = file ? file.name : `Текстовый анализ #${++textCounter.current}`;
+          const item: HistoryItem = {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            title,
+            createdAt: Date.now(),
+            analysis: result,
+          };
+          setHistory((prev) => [item, ...prev].slice(0, 3));
+          setActiveHistoryId(item.id);
+          return;
+        }
+
+        // Неизвестный статус — продолжаем опрос
+      }
     } catch {
-      setStatus("received");
-      setRunHintTone("error");
-      setRunHint("Не удалось связаться с сервером анализа. Проверьте соединение.");
+      fail("Не удалось связаться с сервером анализа. Проверьте соединение.");
     }
   };
 
@@ -452,7 +516,23 @@ function Index() {
             {processing ? (
               <div className="flex h-full min-h-28 flex-col items-center justify-center gap-3 text-muted-foreground">
                 <Loader2 className="size-7 animate-spin text-primary" />
-                <p className="font-medium">Обрабатываю…</p>
+                <p className="font-medium">
+                  {progressInfo?.stage || "Обрабатываю…"}
+                </p>
+                {progressInfo?.message && (
+                  <p className="text-sm">{progressInfo.message}</p>
+                )}
+                {typeof progressInfo?.progress === "number" && (
+                  <div className="w-full max-w-xs">
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-primary transition-all"
+                        style={{ width: `${Math.min(100, Math.max(0, progressInfo.progress))}%` }}
+                      />
+                    </div>
+                    <p className="mt-1 text-center text-xs">{progressInfo.progress}%</p>
+                  </div>
+                )}
               </div>
             ) : analysis ? (
               <article className="text-sm leading-relaxed whitespace-pre-wrap">{analysis}</article>
