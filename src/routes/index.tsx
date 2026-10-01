@@ -413,6 +413,8 @@ function Index() {
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   if (f) acceptFile(f);
+                  // Сбрасываем значение, чтобы повторный выбор того же файла снова срабатывал
+                  e.target.value = "";
                 }}
               />
             </div>
