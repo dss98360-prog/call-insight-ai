@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { downloadAnalysisPdf } from "@/lib/pdf";
 
-const BASE_URL = "https://belong-ala-mrs-calculation.trycloudflare.com";
+const BASE_URL = "https://curly-mails-sip.loca.lt";
 const ENDPOINT = `${BASE_URL}/analyze`;
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 10 * 60 * 1000;
